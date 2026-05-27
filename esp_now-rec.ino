@@ -3,18 +3,18 @@
 #include <ESP32Servo.h>
 
 typedef struct {
-  int16_t throttle;  // -100 (full reverse) to 100 (full forward)
-  int16_t steering;  // -100 (full left) to 100 (full right)
+  int16_t left_speed;
+  int16_t right_speed;
 } DrivePacket;
 
 DrivePacket data;
 
-Servo motorESC;
-Servo steeringServo;
+Servo rc1;
+Servo rc2;
 
-// ===== HARDWARE PINS =====
-const int MOTOR_PIN = 17;
-const int STEERING_PIN = 18;
+// ===== MOTOR PINS =====
+const int RC1_PIN = 16;
+const int RC2_PIN = 17;
 
 const int PWM_NEUTRAL = 1500;
 const int PWM_RANGE = 500;
@@ -25,21 +25,18 @@ int speedToPWM(int speed) {
   return PWM_NEUTRAL + (speed * PWM_RANGE / 100);
 }
 
-// ===== car control =====
-void driveCar(int16_t throttle, int16_t steering) {
-  int pwm_motor = speedToPWM(throttle);
-  
-  // Map steering (-100 to 100) to servo angle (40 to 140)
-  int steering_val = constrain(steering, -100, 100);
-  int steer_angle = map(steering_val, -100, 100, 40, 140);
+// ===== motor control =====
+void setLeftRight(int16_t left, int16_t right) {
+  int pwm_left = speedToPWM(left);
+  int pwm_right = speedToPWM(right);
 
-  Serial.print("Throttle: "); Serial.print(throttle);
-  Serial.print(" -> PWM: "); Serial.print(pwm_motor);
-  Serial.print(" | Steering: "); Serial.print(steering);
-  Serial.print(" -> Angle: "); Serial.println(steer_angle);
+  Serial.print("L: "); Serial.print(left);
+  Serial.print(" -> "); Serial.print(pwm_left);
+  Serial.print(" | R: "); Serial.print(right);
+  Serial.print(" -> "); Serial.println(pwm_right);
 
-  motorESC.writeMicroseconds(pwm_motor);
-  steeringServo.write(steer_angle);
+  rc1.writeMicroseconds(pwm_left);
+  rc2.writeMicroseconds(pwm_right);
 }
 
 // ===== ESP-NOW CALLBACK =====
@@ -48,7 +45,7 @@ void OnDataRecv(const esp_now_recv_info *info,
                 int len) {
 
   memcpy(&data, incomingData, sizeof(data));
-  driveCar(data.throttle, data.steering);
+  setLeftRight(data.left_speed, data.right_speed);
 }
 
 void setup() {
@@ -64,14 +61,13 @@ void setup() {
 
   esp_now_register_recv_cb(OnDataRecv);
 
-  // ===== SERVO & ESC INITIALIZATION =====
-  motorESC.attach(MOTOR_PIN);
-  steeringServo.attach(STEERING_PIN);
+  // ===== SERVO INITIALIZATION =====
+  rc1.attach(RC1_PIN);
+  rc2.attach(RC2_PIN);
 
-  // Set to neutral on startup
-  driveCar(0, 0);
+  setLeftRight(0, 0);
 
-  Serial.println("Receiver Ready (Servo Steering & Motor Driver)");
+  Serial.println("Receiver Ready (ESP32 Servo)");
 }
 
 void loop() {}
