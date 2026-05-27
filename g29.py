@@ -10,6 +10,18 @@ MAX_SPEED = 100
 STEERING_GAIN = 55
 DEADZONE = 0.05
 
+# Clutch config
+CLUTCH_AXIS = 3       # G29 clutch pedal axis
+CLUTCH_THRESHOLD = 0.5 # how far clutch must be pressed to allow gear change (0-1)
+
+# Throttle trim: compensates for motors not starting at the same point.
+# Positive values push the motor harder in that direction.
+# Adjust these until both wheels start moving at the same pedal input.
+TRIM_LEFT_FWD  = 0   # trim added to left motor when going forward  (try 3-8)
+TRIM_LEFT_REV  = 0   # trim added to left motor when going reverse  (try -3 to -8)
+TRIM_RIGHT_FWD = 0   # trim added to right motor when going forward (try 3-8)
+TRIM_RIGHT_REV = 0   # trim added to right motor when going reverse (try -3 to -8)
+
 # Gear speed limits as a fraction of MAX_SPEED (0 to 1.0)
 GEAR_LIMITS = {
     0: 0.0,   # Neutral
@@ -56,11 +68,17 @@ def send(left, right):
 shifter_detected = False
 current_gear = 6  # Start with Gear 6 (full speed) by default
 last_gear = -1
+clutch_was_engaged = False
 
 # ===== MAIN LOOP =====
 while True:
 
     pygame.event.pump()
+
+    # ===== READ CLUTCH =====
+    clutch_raw = js.get_axis(CLUTCH_AXIS)       # +1 released, -1 fully pressed
+    clutch_pressed = (1 - clutch_raw) / 2       # normalize to 0..1
+    clutch_engaged = clutch_pressed >= CLUTCH_THRESHOLD
 
     # ===== READ GEAR =====
     pressed_gear = None
@@ -69,13 +87,22 @@ while True:
             pressed_gear = i - 11  # Button 12 -> Gear 1, ..., Button 17 -> Gear 6
             break
 
-    if pressed_gear is not None:
-        shifter_detected = True
-        current_gear = pressed_gear
-    elif shifter_detected:
-        current_gear = 0  # Neutral (0% speed limit) if shifter is in use but no gear button is pressed
-    else:
-        current_gear = 6  # Default to Gear 6 if shifter has never been used / not connected
+    # Gear only changes while clutch is held
+    if clutch_engaged:
+        if pressed_gear is not None:
+            shifter_detected = True
+            current_gear = pressed_gear
+        elif shifter_detected:
+            current_gear = 0  # Neutral
+    # If clutch released, gear stays locked to whatever was last selected
+
+    if not shifter_detected and not clutch_was_engaged:
+        current_gear = 6  # Default full speed if shifter never used
+
+    if clutch_engaged != clutch_was_engaged:
+        state = "ENGAGED" if clutch_engaged else "RELEASED"
+        print(f"Clutch: {state}")
+        clutch_was_engaged = clutch_engaged
 
     if current_gear != last_gear:
         gear_name = "Neutral" if current_gear == 0 else f"Gear {current_gear}"
@@ -112,9 +139,21 @@ while True:
         left  = speed + steering
         right = speed - steering
 
+    # ===== THROTTLE TRIM =====
+    # Apply per-side, per-direction trim only when the motor is actually being driven
+    if left > 0:
+        left += TRIM_LEFT_FWD
+    elif left < 0:
+        left += TRIM_LEFT_REV
+
+    if right > 0:
+        right += TRIM_RIGHT_FWD
+    elif right < 0:
+        right += TRIM_RIGHT_REV
+
     left = clamp(left)
     right = clamp(right)
 
-    send(left, right)
+    send(left, -right)
 
     time.sleep(0.05)
