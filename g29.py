@@ -14,13 +14,10 @@ DEADZONE = 0.05
 CLUTCH_AXIS = 3       # G29 clutch pedal axis
 CLUTCH_THRESHOLD = 0.5 # how far clutch must be pressed to allow gear change (0-1)
 
-# Throttle trim: compensates for motors not starting at the same point.
-# Positive values push the motor harder in that direction.
-# Adjust these until both wheels start moving at the same pedal input.
-TRIM_LEFT_FWD  = 0   # trim added to left motor when going forward  (try 3-8)
-TRIM_LEFT_REV  = 0   # trim added to left motor when going reverse  (try -3 to -8)
-TRIM_RIGHT_FWD = 0   # trim added to right motor when going forward (try 3-8)
-TRIM_RIGHT_REV = 0   # trim added to right motor when going reverse (try -3 to -8)
+# Motor and steering trim settings:
+TRIM_MOTOR_FWD = 0   # trim added to motor when going forward
+TRIM_MOTOR_REV = 0   # trim added to motor when going reverse (should be negative)
+TRIM_STEERING  = 0   # steering center offset adjustment
 
 # Gear speed limits as a fraction of MAX_SPEED (0 to 1.0)
 GEAR_LIMITS = {
@@ -59,8 +56,8 @@ def apply_deadzone(v, dz):
         return 0
     return v
 
-def send(left, right):
-    msg = f"{int(left)} {int(right)}\n"
+def send(throttle, steering):
+    msg = f"{int(throttle)} {int(steering)}\n"
     ser.write(msg.encode())
     print(msg.strip())
 
@@ -128,32 +125,24 @@ while True:
 
     speed = throttle - reverse
 
-    # ===== STEERING SCALE =====
-    steering = steering * STEERING_GAIN
-
-    # ===== DIFFERENTIAL DRIVE MIX =====
+    # ===== MOTOR & STEERING CALCULATIONS =====
     if current_gear == 0:
-        left = 0
-        right = 0
+        throttle_val = 0
     else:
-        left  = speed + steering
-        right = speed - steering
+        throttle_val = speed
 
-    # ===== THROTTLE TRIM =====
-    # Apply per-side, per-direction trim only when the motor is actually being driven
-    if left > 0:
-        left += TRIM_LEFT_FWD
-    elif left < 0:
-        left += TRIM_LEFT_REV
+    # Apply motor trim
+    if throttle_val > 0:
+        throttle_val += TRIM_MOTOR_FWD
+    elif throttle_val < 0:
+        throttle_val += TRIM_MOTOR_REV
 
-    if right > 0:
-        right += TRIM_RIGHT_FWD
-    elif right < 0:
-        right += TRIM_RIGHT_REV
+    # Apply steering scale (-100 to 100) and trim
+    steering_val = steering * 100 + TRIM_STEERING
 
-    left = clamp(left)
-    right = clamp(right)
+    throttle_val = clamp(throttle_val)
+    steering_val = clamp(steering_val)
 
-    send(left, -right)
+    send(throttle_val, steering_val)
 
     time.sleep(0.05)
